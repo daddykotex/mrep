@@ -4,12 +4,13 @@ import cats.effect._
 import cats.implicits._
 import com.monovore.decline._
 import com.monovore.decline.effect._
+import com.daddykotex.mrep.build.BuildInfo
 
 object Main
     extends CommandIOApp(
-      name = "mrep-cli",
+      name = BuildInfo.name,
       header = "A CLI tool to manage your multi-repos.",
-      version = "0.0.x"
+      version = BuildInfo.version
     ) {
 
   override def main: Opts[IO[ExitCode]] =

@@ -26,9 +26,16 @@ lazy val debugOptionsNativeImage = Seq(
   "-H:+RemoveSaturatedTypeFlows"
 )
 
+lazy val buildInfoSettings = Def.settings(
+  buildInfoKeys := Seq[BuildInfoKey](name, version),
+  buildInfoPackage := "com.daddykotex.mrep.build"
+)
+
 addCommandAlias("buildCli", "mrepCli/nativeImage")
 lazy val mrepCli = (project in file("mrep-cli"))
   .enablePlugins(NativeImagePlugin)
+  .enablePlugins(BuildInfoPlugin)
+  .settings(buildInfoSettings)
   .settings(
     name := "mrep-cli",
     Compile / mainClass := Some("com.daddykotex.mrep.Main"),
