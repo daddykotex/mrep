@@ -39,10 +39,13 @@ lazy val mrepCli = (project in file("mrep-cli"))
   .settings(
     name := "mrep-cli",
     Compile / mainClass := Some("com.daddykotex.mrep.Main"),
-    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+    addCompilerPlugin("com.olegpy"    %% "better-monadic-for" % "0.3.1"),
+    addCompilerPlugin("org.typelevel" %% "kind-projector"     % "0.11.2" cross CrossVersion.full),
     libraryDependencies ++= Seq(
       "org.typelevel" %% "cats-core"           % Versions.catsCore,
       "org.http4s"    %% "http4s-blaze-client" % Versions.http4s,
+      "org.http4s"    %% "http4s-circe"        % Versions.http4s,
+      "io.circe"      %% "circe-generic"       % Versions.circe,
       "com.monovore"  %% "decline"             % Versions.declineVersion,
       "com.monovore"  %% "decline-effect"      % Versions.declineVersion,
       "org.scalameta" %% "munit"               % Versions.munit     % Test,
