@@ -52,6 +52,7 @@ lazy val mrepCli = (project in file("mrep-cli"))
       "org.typelevel" %% "munit-cats-effect-2" % Versions.catsMunit % Test,
       "org.http4s"    %% "http4s-dsl"          % Versions.http4s    % Test
     ),
+    fork in run := true,
     testFrameworks += new TestFramework("munit.Framework"),
     nativeImageOptions ++= List(
       "--verbose",
