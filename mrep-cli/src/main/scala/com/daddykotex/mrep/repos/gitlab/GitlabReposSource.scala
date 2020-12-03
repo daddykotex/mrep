@@ -12,7 +12,7 @@ import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.implicits._
 
-final case class GitlabRepo(name: String, group: String)
+final case class GitlabRepo(name: String, fullPath: String)
 final case class Authentication(token: String)
 
 final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends ReposSource[GitlabRepo] {
@@ -20,9 +20,9 @@ final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends R
   override def getRepos[F[_]]: fs2.Stream[F, GitlabRepo] = ???
 }
 
-object GitlabJson {
-  final case class Group(id: Int, name: String, path: String)
-  implicit val groupDecoder: Decoder[Group] = deriveDecoder[Group]
+private[gitlab] object GitlabJson {
+  final case class Project(id: Int, name: String, path_with_namespace: String)
+  implicit val projectDecoder: Decoder[Project] = deriveDecoder[Project]
 }
 
 final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authentication, httpClient: Client[G])
@@ -56,9 +56,14 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     }
   }
 
-  def getGroups(): fs2.Stream[G, String] = {
-    getRecursively[Seq[GitlabJson.Group]](baseUri / "groups")
+  private def getProjects(): fs2.Stream[G, GitlabJson.Project] = {
+    getRecursively[Seq[GitlabJson.Project]](baseUri / "projects")
       .flatMap(fs2.Stream.emits)
-      .map(_.name)
+  }
+
+  def getRepos(): fs2.Stream[G, GitlabRepo] = {
+    getProjects().map { project =>
+      GitlabRepo(project.name, project.path_with_namespace)
+    }
   }
 }
