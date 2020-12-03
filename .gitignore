@@ -19,3 +19,4 @@ lmah.*.log
 .credentials
 project/metals.sbt
 
+mrep-cli/src/main/scala/com/daddykotex/mrep/DummyMain.scala
