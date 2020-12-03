@@ -1,10 +1,9 @@
 package com.daddykotex.mrep
 
 import cats.effect._
-import cats.implicits._
+import com.daddykotex.mrep.build.BuildInfo
 import com.monovore.decline._
 import com.monovore.decline.effect._
-import com.daddykotex.mrep.build.BuildInfo
 
 object Main
     extends CommandIOApp(
@@ -14,5 +13,8 @@ object Main
     ) {
 
   override def main: Opts[IO[ExitCode]] =
-    Opts.unit.as(ExitCode.Success.pure[IO])
+    Opts.unit.map { _ =>
+      IO.unit.as(ExitCode.Success)
+    // DummyMain.run.as(ExitCode.Success)
+    }
 }
