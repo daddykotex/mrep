@@ -2,8 +2,8 @@ package com.daddykotex.mrep.commands
 
 import cats.data.ValidatedNel
 import cats.implicits._
-import org.http4s.Uri
 import com.monovore.decline._
+import org.http4s.Uri
 
 object Commands {
   val uri: Opts[Uri] =

@@ -1,12 +1,11 @@
 package com.daddykotex.mrep.commands
 
-import org.http4s.Uri
-import com.daddykotex.mrep.repos.gitlab
-import com.monovore.decline._
-import com.daddykotex.mrep.commands.Commands.Validation
-
 import cats.effect._
+import com.daddykotex.mrep.commands.Commands.Validation
+import com.daddykotex.mrep.repos.gitlab
 import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
+import com.monovore.decline._
+import org.http4s.Uri
 import org.http4s.client.blaze.BlazeClientBuilder
 
 final case class ExportGitLab(baseUri: Uri, token: gitlab.Authentication)

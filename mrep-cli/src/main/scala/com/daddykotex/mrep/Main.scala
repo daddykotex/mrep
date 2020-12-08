@@ -1,12 +1,11 @@
 package com.daddykotex.mrep
 
 import cats.effect._
-
 import com.daddykotex.mrep.build.BuildInfo
-import com.monovore.decline._
-import com.monovore.decline.effect._
 import com.daddykotex.mrep.commands.Commands
 import com.daddykotex.mrep.commands.ExportGitLabHandler
+import com.monovore.decline._
+import com.monovore.decline.effect._
 import scala.util.control.NonFatal
 
 object Main
