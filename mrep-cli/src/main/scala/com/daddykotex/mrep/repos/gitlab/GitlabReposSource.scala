@@ -23,6 +23,9 @@ final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends R
 private[gitlab] object GitlabJson {
   final case class Project(id: Int, name: String, path_with_namespace: String)
   implicit val projectDecoder: Decoder[Project] = deriveDecoder[Project]
+
+  final case class ErrorBody(error: String)
+  implicit val errorBodyDecoder: Decoder[ErrorBody] = deriveDecoder[ErrorBody]
 }
 
 final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authentication, httpClient: Client[G])
@@ -47,17 +50,31 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
   }
 
   private def getRecursively[A: EntityDecoder[G, *]](uri: Uri) = {
+    def raise[T](message: String) = new RuntimeException(message).raiseError[G, T]
+    def raiseFromBody[T](resp: Response[G]): G[T] = {
+      resp
+        .as[GitlabJson.ErrorBody]
+        .flatMap(err => raise[T](err.error))
+    }
     fs2.Stream.unfoldLoopEval[G, Uri, A](getRequestUri(uri, None)) { uri =>
       val request = GET(uri, Header.Raw("Private-Token".ci, auth.token))
       request.run { response =>
-        val nextUri = getNextUri(uri, response)
-        response.as[A].map(body => (body, nextUri))
+        response match {
+          case Status.Successful(success) =>
+            val nextUri = getNextUri(uri, success)
+            success.as[A].map(body => (body, nextUri))
+          case Status.ClientError(errorResponse) => raiseFromBody(errorResponse)
+          case Status.ServerError(errorResponse) => raiseFromBody(errorResponse)
+          case _                                 => raise("Unexpected type of response.")
+        }
       }
     }
   }
 
   private def getProjects(): fs2.Stream[G, GitlabJson.Project] = {
-    getRecursively[Seq[GitlabJson.Project]](baseUri / "projects")
+    // https://docs.gitlab.com/ee/api/projects.html#list-user-projects
+    val uri = baseUri / "projects" +? ("archived", false) +? ("min_access_level", 30)
+    getRecursively[Seq[GitlabJson.Project]](uri)
       .flatMap(fs2.Stream.emits)
   }
 
