@@ -19,6 +19,11 @@ object Commands {
       (uri, ExportGitLab.gitlabToken).tupled.map((ExportGitLab.apply _).tupled)
     )
 
+  val run: Opts[RunCommand] =
+    Opts.subcommand(name = "run", help = "Run a command against multiple git repositories.")(
+      (RunCommand.repos, RunCommand.command).tupled.map((RunOnDirectories.apply _).tupled)
+    )
+
   object Validation {
     def nonEmptyString(raw: String): ValidatedNel[String, String] = {
       if (raw.trim().isEmpty()) {
