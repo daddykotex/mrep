@@ -4,6 +4,7 @@ import cats.data.ValidatedNel
 import cats.implicits._
 import com.monovore.decline._
 import org.http4s.Uri
+import java.nio.file.Path
 
 object Commands {
   val uri: Opts[Uri] =
@@ -14,9 +15,11 @@ object Commands {
       )
       .mapValidated(raw => Uri.fromString(raw).leftMap(_.details).toValidatedNel)
 
+  val outputConfig = Opts.option[Path]("output", "File to write config to.")
+
   val exportGitLab: Opts[ExportGitLab] =
     Opts.subcommand(name = "export-gitlab-config", help = "Export your GitLab repositories to a configuration file.")(
-      (uri, ExportGitLab.gitlabToken).tupled.map((ExportGitLab.apply _).tupled)
+      (uri, ExportGitLab.gitlabToken, outputConfig).tupled.map((ExportGitLab.apply _).tupled)
     )
 
   object Validation {

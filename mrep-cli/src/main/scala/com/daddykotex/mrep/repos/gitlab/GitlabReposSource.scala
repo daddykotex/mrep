@@ -3,21 +3,22 @@ package com.daddykotex.mrep.repos.gitlab
 import cats.Applicative
 import cats.effect.Sync
 import cats.implicits._
-import com.daddykotex.mrep.repos.ReposSource
-import io.circe._, io.circe.generic.semiauto._
+import com.daddykotex.mrep.repos.RepoConfigSource
+import io.circe.Decoder, io.circe.generic.semiauto._
 import org.http4s.Method._
 import org.http4s._
 import org.http4s.circe.CirceEntityDecoder
 import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.implicits._
+import com.daddykotex.mrep.config._
 
-final case class GitlabRepo(name: String, fullPath: String)
+object GitlabRepo {}
 final case class Authentication(token: String)
 
-final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends ReposSource[GitlabRepo] {
-  locally(gitlabClient)
-  override def getRepos[F[_]]: fs2.Stream[F, GitlabRepo] = ???
+final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends RepoConfigSource[G] {
+  override def getRepos: fs2.Stream[G, RepoConfig] =
+    gitlabClient.getRepos().map(RenderRepoConfig[GitlabJson.Project].convert(_))
 }
 
 private[gitlab] object GitlabJson {
@@ -26,6 +27,10 @@ private[gitlab] object GitlabJson {
 
   final case class ErrorBody(error: String)
   implicit val errorBodyDecoder: Decoder[ErrorBody] = deriveDecoder[ErrorBody]
+
+  implicit val grRRConfig: RenderRepoConfig[Project] = RenderRepoConfig.instance { a =>
+    RepoConfig(a.name, a.path_with_namespace)
+  }
 }
 
 final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authentication, httpClient: Client[G])
@@ -78,9 +83,7 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
       .flatMap(fs2.Stream.emits)
   }
 
-  def getRepos(): fs2.Stream[G, GitlabRepo] = {
-    getProjects().map { project =>
-      GitlabRepo(project.name, project.path_with_namespace)
-    }
+  def getRepos(): fs2.Stream[G, GitlabJson.Project] = {
+    getProjects()
   }
 }

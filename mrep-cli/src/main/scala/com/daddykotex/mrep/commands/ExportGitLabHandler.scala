@@ -7,8 +7,11 @@ import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
 import com.monovore.decline._
 import org.http4s.Uri
 import org.http4s.client.blaze.BlazeClientBuilder
+import com.daddykotex.mrep.config.ConfigWriter
+import java.nio.file.Path
+import com.daddykotex.mrep.repos.gitlab.GitlabReposSource
 
-final case class ExportGitLab(baseUri: Uri, token: gitlab.Authentication)
+final case class ExportGitLab(baseUri: Uri, token: gitlab.Authentication, path: Path)
 object ExportGitLab {
   val gitlabToken: Opts[gitlab.Authentication] =
     Opts
@@ -21,12 +24,16 @@ object ExportGitLab {
 }
 
 object ExportGitLabHandler {
-  def handle(command: ExportGitLab)(implicit ce: ConcurrentEffect[IO]): IO[Unit] =
-    Blocker[IO]
-      .flatMap(blocker => BlazeClientBuilder[IO](blocker.blockingContext).resource)
-      .use(client => {
-        val gh = new GitLabHttpClient[IO](command.baseUri, command.token, client)
-        gh.getRepos().debug().take(1).compile.drain
-      })
-      .flatMap { result => IO.delay(println(result)) }
+  def handle(command: ExportGitLab)(implicit ce: ConcurrentEffect[IO], cs: ContextShift[IO]): IO[Unit] = {
+    val withRes = for {
+      blocker <- Blocker[IO]
+      client <- BlazeClientBuilder[IO](blocker.blockingContext).resource
+      gh = new GitLabHttpClient[IO](command.baseUri, command.token, client)
+      ghSource = new GitlabReposSource[IO](gh)
+      cw = new ConfigWriter[IO](command.path, blocker)
+      res = ghSource.getRepos.through(cw.toConfigFile()).compile.drain
+    } yield res
+
+    withRes.use(identity)
+  }
 }

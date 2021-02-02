@@ -46,6 +46,7 @@ lazy val mrepCli = (project in file("mrep-cli"))
       "org.http4s"    %% "http4s-blaze-client" % Versions.http4s,
       "org.http4s"    %% "http4s-circe"        % Versions.http4s,
       "io.circe"      %% "circe-generic"       % Versions.circe,
+      "io.circe"      %% "circe-fs2"           % Versions.circe,
       "com.monovore"  %% "decline"             % Versions.declineVersion,
       "com.monovore"  %% "decline-effect"      % Versions.declineVersion,
       "org.scalameta" %% "munit"               % Versions.munit     % Test,
