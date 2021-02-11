@@ -8,4 +8,6 @@ object Versions {
 
   val munit = "0.7.19"
   val catsMunit = "0.11.0"
+
+  val scribe = "3.3.1"
 }

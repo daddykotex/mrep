@@ -4,12 +4,14 @@ import cats.data.NonEmptyList
 import cats.effect._
 import com.daddykotex.mrep.file._
 import com.daddykotex.mrep.git.Repository
+import com.daddykotex.proc.Command
+import com.daddykotex.proc.Exec
+import com.daddykotex.proc.ProxCommand
+import com.daddykotex.proc.ProxRawCommand
+import com.daddykotex.proc.RawCommand
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
-import com.daddykotex.proc.RawCommand
-import com.daddykotex.proc.Exec
-import com.daddykotex.proc.ProxRawCommand
 
 sealed abstract class RunCommand
 final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[RawCommand])
@@ -40,7 +42,8 @@ object RunCommandHandler {
       .use(blocker => {
         implicit val prox = ProxFS2[IO](blocker)
         implicit val fs: FS[IO] = new FileSystem[IO](blocker)
-        implicit val exec: Exec[IO, RawCommand] = new ProxRawCommand(prox)
+        implicit val rawExec: Exec[IO, RawCommand] = new ProxRawCommand(prox)
+        implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
 
         command match {
           case RunOnDirectories(repos, commands) =>
@@ -53,8 +56,11 @@ object RunCommandHandler {
                 isClean <- repo.ops.isClean()
                 _ <-
                   if (isClean) {
-                    commands.traverse(raw => exec.runVoid(raw))
-                  } else { IO.unit }
+                    IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
+                      commands.traverse(raw => rawExec.runVoid(raw, workDir = repo.directory))
+                  } else {
+                    IO.delay(scribe.debug(s"Ignoring ${repo.directory} because it's not clean."))
+                  }
               } yield ()
             }.void
         }

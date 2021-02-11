@@ -49,6 +49,7 @@ lazy val mrepCli = (project in file("mrep-cli"))
       "com.monovore"    %% "decline"             % Versions.declineVersion,
       "com.monovore"    %% "decline-effect"      % Versions.declineVersion,
       "io.github.vigoo" %% "prox-fs2"            % Versions.prox,
+      "com.outr"        %% "scribe"              % Versions.scribe,
       "org.scalameta"   %% "munit"               % Versions.munit     % Test,
       "org.typelevel"   %% "munit-cats-effect-2" % Versions.catsMunit % Test,
       "org.http4s"      %% "http4s-dsl"          % Versions.http4s    % Test

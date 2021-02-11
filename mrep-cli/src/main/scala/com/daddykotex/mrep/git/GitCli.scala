@@ -2,7 +2,8 @@ package com.daddykotex.mrep.git
 
 import cats.Applicative
 import cats.implicits._
-import io.github.vigoo.prox._
+import com.daddykotex.proc.Command
+import com.daddykotex.proc.Exec
 import java.nio.file.Path
 import java.nio.file.Paths
 
@@ -27,23 +28,14 @@ trait GitCli[F[_]] {
 }
 
 object GitCli {
-  def forOne[F[_]: Applicative](repository: Repository, prox: ProxFS2[F]): GitCli[F] = new GitCli[F] {
-    import prox._
-
-    private implicit val runner: ProcessRunner[JVMProcessInfo] = new JVMProcessRunner
-
+  def forOne[F[_]: Applicative](repository: Repository, exec: Exec[F, Command]): GitCli[F] = new GitCli[F] {
     val repo: Repository = repository
 
     def status(untrackedFiles: UntrackedFiles): F[Vector[Path]] = {
-      Process("git", List("status", s"--untracked-files=${untrackedFiles.arg}"))
-        .toVector(
-          _.through(fs2.text.utf8Decode)
-            .through(fs2.text.lines)
-            .filter(_.nonEmpty)
-            .map(line => Paths.get(line))
-        )
-        .run()(runner)
-        .map(_.output)
+      val command = Command("git", List("status", s"--untracked-files=${untrackedFiles.arg}", "--porcelain"))
+      exec
+        .runLines(command, repo.directory)
+        .map(_.map(line => Paths.get(line)))
     }
   }
 }

@@ -2,12 +2,15 @@ package com.daddykotex.proc
 
 import cats._
 import cats.implicits._
-import io.github.vigoo.prox.ProxFS2
+import io.github.vigoo.prox._
+import java.nio.file.Path
 
 final case class RawCommand(value: String) extends AnyVal
+final case class Command(value: String, args: List[String])
 
 trait Exec[F[_], A] {
-  def runVoid(input: A): F[Unit]
+  def runVoid(input: A, workDir: Path): F[Unit]
+  def runLines(input: A, workDir: Path): F[Vector[String]]
 }
 class ProxRawCommand[F[_]: MonadError[*[_], Throwable]](prox: ProxFS2[F]) extends Exec[F, RawCommand] {
   import prox._
@@ -15,9 +18,52 @@ class ProxRawCommand[F[_]: MonadError[*[_], Throwable]](prox: ProxFS2[F]) extend
 
   private val nonZeroExit: Throwable = new RuntimeException("The execution returned an non zero exit code.")
 
-  override def runVoid(raw: RawCommand): F[Unit] =
+  override def runVoid(raw: RawCommand, workDir: Path): F[Unit] = {
     Process(raw.value)
+      .copy(workingDirectory = workDir.some)
       .run()
       .ensure(nonZeroExit)(_.exitCode.code === 0)
       .void
+  }
+
+  override def runLines(raw: RawCommand, workDir: Path): F[Vector[String]] = {
+    Process(raw.value)
+      .copy(workingDirectory = workDir.some)
+      .toVector(
+        _.through(fs2.text.utf8Decode)
+          .through(fs2.text.lines)
+          .filter(_.nonEmpty)
+      )
+      .run()
+      .ensure(nonZeroExit)(_.exitCode.code === 0)
+      .map { _.output }
+  }
+}
+
+class ProxCommand[F[_]: MonadError[*[_], Throwable]](prox: ProxFS2[F]) extends Exec[F, Command] {
+  import prox._
+  private implicit val runner: ProcessRunner[JVMProcessInfo] = new JVMProcessRunner
+
+  private val nonZeroExit: Throwable = new RuntimeException("The execution returned an non zero exit code.")
+
+  override def runVoid(raw: Command, workDir: Path): F[Unit] = {
+    Process(raw.value, raw.args)
+      .copy(workingDirectory = workDir.some)
+      .run()
+      .ensure(nonZeroExit)(_.exitCode.code === 0)
+      .void
+  }
+
+  override def runLines(raw: Command, workDir: Path): F[Vector[String]] = {
+    Process(raw.value, raw.args)
+      .copy(workingDirectory = workDir.some)
+      .toVector(
+        _.through(fs2.text.utf8Decode)
+          .through(fs2.text.lines)
+          .filter(_.nonEmpty)
+      )
+      .run()
+      .ensure(nonZeroExit)(_.exitCode.code === 0)
+      .map { _.output }
+  }
 }
