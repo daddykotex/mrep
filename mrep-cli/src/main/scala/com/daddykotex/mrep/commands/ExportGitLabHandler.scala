@@ -24,9 +24,9 @@ object ExportGitLabHandler {
   def handle(command: ExportGitLab)(implicit ce: ConcurrentEffect[IO]): IO[Unit] =
     Blocker[IO]
       .flatMap(blocker => BlazeClientBuilder[IO](blocker.blockingContext).resource)
-      .use(client => {
+      .use { client =>
         val gh = new GitLabHttpClient[IO](command.baseUri, command.token, client)
         gh.getRepos().debug().take(1).compile.drain
-      })
+      }
       .flatMap { result => IO.delay(println(result)) }
 }

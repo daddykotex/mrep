@@ -2,20 +2,18 @@ package com.daddykotex.mrep.commands
 
 import cats.data.NonEmptyList
 import cats.effect._
+import cats.syntax.validated._
 import com.daddykotex.mrep.file._
 import com.daddykotex.mrep.git.Repository
 import com.daddykotex.proc.Command
 import com.daddykotex.proc.Exec
 import com.daddykotex.proc.ProxCommand
-import com.daddykotex.proc.ProxRawCommand
-import com.daddykotex.proc.RawCommand
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
 
 sealed abstract class RunCommand
-final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[RawCommand])
-    extends RunCommand
+final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[Command]) extends RunCommand
 
 object RunCommand {
   val repos: Opts[NonEmptyList[Repository]] =
@@ -26,14 +24,21 @@ object RunCommand {
       )
       .map(_.map(Repository(_)))
 
-  val command: Opts[NonEmptyList[RawCommand]] =
+  val command: Opts[NonEmptyList[Command]] =
     Opts
       .options[String](
         long = "command",
         help = "Command to run on each repository."
       )
-      .validate("command argument should not be empty")(_.forall(_.nonEmpty))
-      .map(_.map(RawCommand))
+      .mapValidated { commands =>
+        commands
+          .traverse { rawCommand =>
+            NonEmptyList.fromList(rawCommand.split(" ").toList) match {
+              case Some(NonEmptyList(head, tail)) => Command(head, tail).valid
+              case None                           => "command argument should not be empty".invalidNel
+            }
+          }
+      }
 }
 
 object RunCommandHandler {
@@ -42,7 +47,6 @@ object RunCommandHandler {
       .use(blocker => {
         implicit val prox = ProxFS2[IO](blocker)
         implicit val fs: FS[IO] = new FileSystem[IO](blocker)
-        implicit val rawExec: Exec[IO, RawCommand] = new ProxRawCommand(prox)
         implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
 
         command match {
@@ -57,7 +61,7 @@ object RunCommandHandler {
                 _ <-
                   if (isClean) {
                     IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
-                      commands.traverse(raw => rawExec.runVoid(raw, workDir = repo.directory))
+                      commands.traverse(raw => commandExec.runVoid(raw, workDir = repo.directory))
                   } else {
                     IO.delay(scribe.debug(s"Ignoring ${repo.directory} because it's not clean."))
                   }
