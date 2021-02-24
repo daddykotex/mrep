@@ -2,6 +2,7 @@ package com.daddykotex.mrep
 
 import cats.effect._
 import com.daddykotex.mrep.build.BuildInfo
+import com.daddykotex.mrep.commands.CloneGitLabHandler
 import com.daddykotex.mrep.commands.Commands
 import com.daddykotex.mrep.commands.ExportGitLabHandler
 import com.daddykotex.mrep.commands.RunCommandHandler
@@ -20,11 +21,15 @@ object Main
     val exportGitlab = Commands.exportGitLab.map {
       ExportGitLabHandler.handle
     }
+
+    val cloneGitlab = Commands.cloneCmd.map {
+      CloneGitLabHandler.handle
+    }
     val run = Commands.run.map { cmd =>
       RunCommandHandler.handle(cmd)
     }
 
-    (exportGitlab orElse run)
+    (exportGitlab orElse run orElse cloneGitlab)
       .map { result =>
         result
           .as(ExitCode.Success)

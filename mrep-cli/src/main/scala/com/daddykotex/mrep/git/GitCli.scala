@@ -21,21 +21,42 @@ object UntrackedFiles {
   case object All extends UntrackedFiles
 }
 
-trait GitCli[F[_]] {
+trait RepoGitCli[F[_]] {
   val repo: Repository
 
   def status(untrackedFiles: UntrackedFiles): F[Vector[Path]]
 }
 
-object GitCli {
-  def forOne[F[_]: Applicative](repository: Repository, exec: Exec[F, Command]): GitCli[F] = new GitCli[F] {
+object RepoGitCli {
+  def forOne[F[_]: Applicative](repository: Repository, exec: Exec[F, Command]): RepoGitCli[F] = new RepoGitCli[F] {
     val repo: Repository = repository
 
     def status(untrackedFiles: UntrackedFiles): F[Vector[Path]] = {
       val command = Command("git", List("status", s"--untracked-files=${untrackedFiles.arg}", "--porcelain"))
       exec
-        .runLines(command, repo.directory)
+        .runLines(command, Some(repo.directory))
         .map(_.map(line => Paths.get(line)))
+    }
+  }
+}
+
+trait GitCli[F[_]] {
+  def clone(gitUrl: String, target: Path): F[Path]
+}
+
+object GitCli {
+  def apply[F[_]: Applicative](exec: Exec[F, Command]): GitCli[F] = new GitCli[F] {
+    override def clone(gitUrl: String, target: Path): F[Path] = {
+      val command = Command("git", List("clone", gitUrl, target.toString()))
+      exec
+        .runVoid(command, None)
+        .as(target)
+    }
+  }
+
+  object ExpectedErrors {
+    def ignoreExistingRepositories: PartialFunction[Throwable, Unit] = {
+      case Exec.Error(err) if err.getMessage().contains("already exists and is not an empty directory") => ()
     }
   }
 }

@@ -16,7 +16,13 @@ object Commands {
 
   val exportGitLab: Opts[ExportGitLab] =
     Opts.subcommand(name = "export-gitlab-config", help = "Export your GitLab repositories to a configuration file.")(
-      (uri, ExportGitLab.gitlabToken).tupled.map((ExportGitLab.apply _).tupled)
+      (uri, Authentication.gitlabToken).tupled.map((ExportGitLab.apply _).tupled)
+    )
+
+  val cloneCmd: Opts[CloneGitLabGroup] =
+    Opts.subcommand(name = "clone", help = "Clone multiple Git repositories at once.")(
+      (uri, Authentication.gitlabToken, CloneGitLab.repeatedGroup, Files.targetDirectory).tupled
+        .map((CloneGitLabGroup.apply _).tupled)
     )
 
   val run: Opts[RunCommand] =

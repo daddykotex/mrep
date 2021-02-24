@@ -61,7 +61,7 @@ object RunCommandHandler {
                 _ <-
                   if (isClean) {
                     IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
-                      commands.traverse(raw => commandExec.runVoid(raw, workDir = repo.directory))
+                      commands.traverse(raw => commandExec.runVoid(raw, workDir = Some(repo.directory)))
                   } else {
                     IO.delay(scribe.debug(s"Ignoring ${repo.directory} because it's not clean."))
                   }

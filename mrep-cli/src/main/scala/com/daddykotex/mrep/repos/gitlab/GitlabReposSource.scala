@@ -12,7 +12,7 @@ import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.implicits._
 
-final case class GitlabRepo(name: String, fullPath: String)
+final case class GitlabRepo(name: String, fullPath: String, cloneUrl: String)
 final case class Authentication(token: String)
 
 final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends ReposSource[GitlabRepo] {
@@ -21,7 +21,7 @@ final class GitlabReposSource[G[_]](gitlabClient: GitLabHttpClient[G]) extends R
 }
 
 private[gitlab] object GitlabJson {
-  final case class Project(id: Int, name: String, path_with_namespace: String)
+  final case class Project(id: Int, name: String, path_with_namespace: String, ssh_url_to_repo: String)
   implicit val projectDecoder: Decoder[Project] = deriveDecoder[Project]
 
   final case class ErrorBody(error: String)
@@ -71,16 +71,22 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     }
   }
 
-  private def getProjects(): fs2.Stream[G, GitlabJson.Project] = {
+  private def getProjects(projectsUri: Uri): fs2.Stream[G, GitlabJson.Project] = {
     // https://docs.gitlab.com/ee/api/projects.html#list-user-projects
-    val uri = baseUri / "projects" +? ("archived", false) +? ("min_access_level", 30)
+    val uri = projectsUri +? ("archived", false) +? ("min_access_level", 30)
     getRecursively[Seq[GitlabJson.Project]](uri)
       .flatMap(fs2.Stream.emits)
   }
 
-  def getRepos(): fs2.Stream[G, GitlabRepo] = {
-    getProjects().map { project =>
-      GitlabRepo(project.name, project.path_with_namespace)
+  def getAllRepos(): fs2.Stream[G, GitlabRepo] = {
+    getProjects(baseUri / "projects").map { project =>
+      GitlabRepo(project.name, project.path_with_namespace, project.ssh_url_to_repo)
+    }
+  }
+
+  def getGroupRepos(group: String): fs2.Stream[G, GitlabRepo] = {
+    getProjects(baseUri / "groups" / group / "projects").map { project =>
+      GitlabRepo(project.name, project.path_with_namespace, project.ssh_url_to_repo)
     }
   }
 }
