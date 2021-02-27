@@ -1,4 +1,4 @@
-package com.daddykotex.proc
+package com.daddykotex.mrep.proc
 
 import cats._
 import cats.implicits._

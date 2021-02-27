@@ -8,7 +8,7 @@ import com.daddykotex.mrep.file._
 import com.daddykotex.mrep.git.GitCli
 import com.daddykotex.mrep.repos.gitlab
 import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
-import com.daddykotex.proc._
+import com.daddykotex.mrep.proc._
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path

@@ -2,9 +2,8 @@ package com.daddykotex.mrep.git
 
 import cats.Applicative
 import cats.implicits._
-import com.daddykotex.proc.Command
-import com.daddykotex.proc.Exec
 import java.nio.file.Path
+import com.daddykotex.mrep.proc._
 import java.nio.file.Paths
 
 sealed trait UntrackedFiles {
