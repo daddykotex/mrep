@@ -43,6 +43,7 @@ lazy val mrepCli = (project in file("mrep-cli"))
     addCompilerPlugin("org.typelevel" %% "kind-projector"     % "0.11.3" cross CrossVersion.full),
     libraryDependencies ++= Seq(
       "org.typelevel"   %% "cats-core"           % Versions.catsCore,
+      "org.typelevel"   %% "cats-parse"          % Version.catsParse,
       "org.http4s"      %% "http4s-blaze-client" % Versions.http4s,
       "org.http4s"      %% "http4s-circe"        % Versions.http4s,
       "io.circe"        %% "circe-generic"       % Versions.circe,

@@ -43,12 +43,12 @@ object RunCommand {
       }
 
   def stringToCommand(rawCommand: String): Validated[NonEmptyList[String], Command] = {
-    NonEmptyList.fromList(rawCommand.split(" (?=([^\"]*\"[^\"]*\")*[^\"]*$)").toList) match {
-      case Some(NonEmptyList(head, tail)) =>
-        val quoteFree = tail.map(_.replace("\"", ""))
-        Command(head, quoteFree).validNel[String]
-      case None => "command argument should not be empty".invalidNel
-    }
+    CommandParserHelper
+      .parse(rawCommand)
+      .fold(
+        _ => "Unable to parse the command.".invalidNel, //todo do something smart with the error
+        { case NonEmptyList(head, tail) => Command(head, tail).validNel[String] }
+      )
   }
 }
 
@@ -88,4 +88,25 @@ object RunCommandHandler {
             }.void
         }
       })
+}
+
+private object CommandParserHelper {
+  import cats.parse.{Parser => P}
+
+  private val spaceChar = ' '
+  private val space = P.char(spaceChar)
+  private val quoteChar = '"'
+  private val quote = P.char(quoteChar)
+
+  private def unquotedStringChars(c: Char) = c != '\\' && c != spaceChar && c != quoteChar
+  private val string = P.charsWhile(unquotedStringChars)
+  private def quotedStringChars(c: Char) = c != '\\' && c != quoteChar
+  private val quotedString = P.charsWhile(quotedStringChars).surroundedBy(quote)
+
+  private val allString = P.repSep(quotedString | string, sep = space)
+
+  private val commandParser = allString <* P.end
+
+  def parse(input: String): Either[P.Error, NonEmptyList[String]] =
+    commandParser.parseAll(input)
 }
