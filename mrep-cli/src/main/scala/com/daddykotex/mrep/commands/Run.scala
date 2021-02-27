@@ -39,14 +39,17 @@ object RunCommand {
         help = "Command to run on each repository."
       )
       .mapValidated { commands =>
-        commands
-          .traverse { rawCommand =>
-            NonEmptyList.fromList(rawCommand.split(" ").toList) match {
-              case Some(NonEmptyList(head, tail)) => Command(head, tail).valid
-              case None                           => "command argument should not be empty".invalidNel
-            }
-          }
+        commands.traverse { stringToCommand }
       }
+
+  def stringToCommand(rawCommand: String): Validated[NonEmptyList[String], Command] = {
+    NonEmptyList.fromList(rawCommand.split(" (?=([^\"]*\"[^\"]*\")*[^\"]*$)").toList) match {
+      case Some(NonEmptyList(head, tail)) =>
+        val quoteFree = tail.map(_.replace("\"", ""))
+        Command(head, quoteFree).validNel[String]
+      case None => "command argument should not be empty".invalidNel
+    }
+  }
 }
 
 object RunCommandHandler {
