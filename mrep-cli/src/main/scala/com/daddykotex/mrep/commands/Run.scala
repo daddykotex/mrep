@@ -93,6 +93,9 @@ object RunCommandHandler {
 private object CommandParserHelper {
   import cats.parse.{Parser => P}
 
+  private val whitespace: P[Unit] = P.charIn(" \t\r\n").void
+  private val whitespaces0 = whitespace.rep0.void
+
   private val spaceChar = ' '
   private val space = P.char(spaceChar)
   private val quoteChar = '"'
@@ -105,7 +108,7 @@ private object CommandParserHelper {
 
   private val allString = P.repSep(quotedString | string, sep = space)
 
-  private val commandParser = allString <* P.end
+  private val commandParser = whitespaces0 *> allString <* (whitespaces0 ~ P.end)
 
   def parse(input: String): Either[P.Error, NonEmptyList[String]] =
     commandParser.parseAll(input)

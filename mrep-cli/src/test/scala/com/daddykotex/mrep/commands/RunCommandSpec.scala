@@ -18,4 +18,32 @@ class RunCommandSpec extends munit.FunSuite {
       Command("echo", List("toto is a hard to find")).validNel
     )
   }
+
+  test("parse without trailing whitespace") {
+    assertEquals(
+      RunCommand.stringToCommand("this is it "),
+      Command("this", List("is", "it")).validNel
+    )
+  }
+
+  test("parse without leading whitespace".trim) {
+    assertEquals(
+      RunCommand.stringToCommand(" this is it"),
+      Command("this", List("is", "it")).validNel
+    )
+  }
+
+  test("parse without leading/trailing whitespace") {
+    assertEquals(
+      RunCommand.stringToCommand(" this is it"),
+      Command("this", List("is", "it")).validNel
+    )
+  }
+
+  test("keep spaces in quotes") {
+    assertEquals(
+      RunCommand.stringToCommand("echo \" I want space before and after \""),
+      Command("echo", List(" I want space before and after ")).validNel
+    )
+  }
 }
