@@ -1,26 +1,34 @@
 package com.daddykotex.mrep.commands
 
 import cats.data.NonEmptyList
+import cats.data.Validated
+import cats.implicits._
 import cats.effect._
-import cats.syntax.validated._
 import com.daddykotex.mrep.file._
 import com.daddykotex.mrep.git.Repository
-import com.daddykotex.proc.Command
-import com.daddykotex.proc.Exec
-import com.daddykotex.proc.ProxCommand
+import com.daddykotex.mrep.proc._
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
 
 sealed abstract class RunCommand
-final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[Command]) extends RunCommand
+final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[Command], allowDirty: Boolean)
+    extends RunCommand
 
 object RunCommand {
+  val allowDirty: Opts[Boolean] =
+    Opts
+      .flag(
+        long = "allow-dirty",
+        help = "Run the command even if the git repository is not clean."
+      )
+      .orFalse
   val repos: Opts[NonEmptyList[Repository]] =
     Opts
       .options[Path](
         long = "repo",
-        help = "Points to a repository on your file system."
+        help = "Points to a repository on your file system.",
+        metavar = "/path/to/folder"
       )
       .map(_.map(Repository(_)))
 
@@ -50,20 +58,28 @@ object RunCommandHandler {
         implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
 
         command match {
-          case RunOnDirectories(repos, commands) =>
+          case RunOnDirectories(repos, commands, allowDirty) =>
             repos.traverse { repo =>
               for {
                 exists <- fs.exists(repo.directory)
                 _ <-
                   IO.raiseWhen(!exists)(new RuntimeException(s"Directory ${repo.directory} does not exist."))
 
-                isClean <- repo.ops.isClean()
+                gitRepoOps = repo.ops[IO]
+
+                isClean <- gitRepoOps.isClean()
                 _ <-
-                  if (isClean) {
+                  if (isClean || allowDirty) {
                     IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
-                      commands.traverse(raw => commandExec.runVoid(raw, workDir = Some(repo.directory)))
+                      commands.traverse { raw =>
+                        commandExec
+                          .runVoid(raw, workDir = Some(repo.directory))
+                          .recover { case Exec.Error(ex) =>
+                            scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
+                          }
+                      }
                   } else {
-                    IO.delay(scribe.debug(s"Ignoring ${repo.directory} because it's not clean."))
+                    IO.delay(scribe.info(s"Ignoring ${repo.directory} because it's not clean."))
                   }
               } yield ()
             }.void

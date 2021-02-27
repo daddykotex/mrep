@@ -27,7 +27,7 @@ object Commands {
 
   val run: Opts[RunCommand] =
     Opts.subcommand(name = "run", help = "Run a command against multiple git repositories.")(
-      (RunCommand.repos, RunCommand.command).tupled.map((RunOnDirectories.apply _).tupled)
+      (RunCommand.repos, RunCommand.command, RunCommand.allowDirty).tupled.map((RunOnDirectories.apply _).tupled)
     )
 
   object Validation {
