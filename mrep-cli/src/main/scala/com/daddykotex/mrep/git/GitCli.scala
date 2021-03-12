@@ -6,6 +6,18 @@ import java.nio.file.Path
 import com.daddykotex.mrep.proc._
 import java.nio.file.Paths
 
+sealed trait CheckoutBranch {
+  import CheckoutBranch._
+  val arg: String = this match {
+    case NewBranch      => "-b"
+    case ForceNewBranch => "-B"
+  }
+}
+object CheckoutBranch {
+  case object NewBranch extends CheckoutBranch
+  case object ForceNewBranch extends CheckoutBranch
+}
+
 sealed trait UntrackedFiles {
   import UntrackedFiles._
   val arg: String = this match {
@@ -20,14 +32,23 @@ object UntrackedFiles {
   case object All extends UntrackedFiles
 }
 
+final case class FullBranch(remote: String, branch: String) {
+  def asString: String = s"$remote/$branch"
+}
+
 trait RepoGitCli[F[_]] {
   val repo: Repository
 
   def status(untrackedFiles: UntrackedFiles): F[Vector[Path]]
+  def reset(hard: Boolean, target: FullBranch): F[Unit]
+  def clean(force: Boolean, recursive: Boolean): F[Unit]
+  def checkout(newBranch: CheckoutBranch, target: String, startPoint: Option[FullBranch]): F[Unit]
+  def pull(): F[Unit]
 }
 
 object RepoGitCli {
   def forOne[F[_]: Applicative](repository: Repository, exec: Exec[F, Command]): RepoGitCli[F] = new RepoGitCli[F] {
+
     val repo: Repository = repository
 
     def status(untrackedFiles: UntrackedFiles): F[Vector[Path]] = {
@@ -35,6 +56,33 @@ object RepoGitCli {
       exec
         .runLines(command, Some(repo.directory))
         .map(_.map(line => Paths.get(line)))
+    }
+
+    override def reset(hard: Boolean, target: FullBranch): F[Unit] = {
+      val hardFlag = if (hard) { List("--hard") }
+      else { List.empty }
+      val command = Command("git", List("reset") ++ hardFlag ++ List(target.asString))
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def clean(force: Boolean, recursive: Boolean): F[Unit] = {
+      val forceFlag = if (force) List("--force") else List.empty
+      val recursiveFlag = if (recursive) List("--d") else List.empty
+      val command = Command("git", List("clean") ++ forceFlag ++ recursiveFlag)
+      println(s"running $command in ${repo.directory}")
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def checkout(newBranch: CheckoutBranch, target: String, startPoint: Option[FullBranch]): F[Unit] = {
+      val newBranchFlag = List(newBranch.arg)
+      val startPointArg = startPoint.map(_.asString).toList
+      val command = Command("git", List("checkout") ++ newBranchFlag ++ List(target) ++ startPointArg)
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def pull(): F[Unit] = {
+      val command = Command("git", List("pull"))
+      exec.runVoid(command, Some(repo.directory))
     }
   }
 }

@@ -21,14 +21,30 @@ object Commands {
 
   val cloneCmd: Opts[CloneGitLabGroup] =
     Opts.subcommand(name = "clone", help = "Clone multiple Git repositories at once.")(
-      (uri, Authentication.gitlabToken, CloneGitLab.repeatedGroup, Files.targetDirectory).tupled
+      (uri, Authentication.gitlabToken, GitLab.repeatedGroup, Files.targetDirectory).tupled
         .map((CloneGitLabGroup.apply _).tupled)
     )
 
-  val run: Opts[RunCommand] =
-    Opts.subcommand(name = "run", help = "Run a command against multiple git repositories.")(
-      (RunCommand.repos, RunCommand.command, RunCommand.allowDirty).tupled.map((RunOnDirectories.apply _).tupled)
-    )
+  val runGroup: Opts[RunCommand] =
+    Opts.subcommand(name = "run-group", help = "Run a command against multiple git repositories in a Group.") {
+      (
+        uri,
+        Authentication.gitlabToken,
+        GitLab.repeatedGroup,
+        RunCommand.matchers,
+        RunCommand.branch,
+        RunCommand.commands,
+        RunCommand.allowDirty
+      ).tupled
+        .map((RunOnGroups.apply _).tupled)
+    }
+
+  val runDir: Opts[RunCommand] =
+    Opts.subcommand(name = "run-dir", help = "Run a command against multiple git repositories.") {
+      (RunCommand.repos, RunCommand.commands, RunCommand.allowDirty).tupled.map((RunOnDirectories.apply _).tupled)
+    }
+
+  val run = runDir orElse runGroup
 
   object Validation {
     def nonEmptyString(raw: String): ValidatedNel[String, String] = {

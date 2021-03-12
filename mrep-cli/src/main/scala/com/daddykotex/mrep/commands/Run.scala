@@ -5,15 +5,52 @@ import cats.data.Validated
 import cats.implicits._
 import cats.effect._
 import com.daddykotex.mrep.file._
+import com.daddykotex.mrep.repos.gitlab
 import com.daddykotex.mrep.git.Repository
 import com.daddykotex.mrep.proc._
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
+import org.http4s.client.blaze.BlazeClientBuilder
+import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
+import org.http4s.Uri
+import com.daddykotex.mrep.services.HomeService
+import com.daddykotex.mrep.git.GitCli
+import scala.concurrent.duration._
+import com.daddykotex.mrep.repos.gitlab.GitlabRepo
+
+final case class NameMatcher(regex: String, reverse: Boolean) {
+  def matches(value: String): Boolean = {
+    val switch: Boolean => Boolean = if (reverse) {
+      !(_)
+    } else {
+      identity
+    }
+    switch(value.matches(regex))
+  }
+}
+object NameMatcher {
+  def fromString(regex: String): NameMatcher = {
+    if (regex.startsWith("!")) {
+      NameMatcher(regex.drop(1), reverse = true)
+    } else {
+      NameMatcher(regex, reverse = false)
+    }
+  }
+}
 
 sealed abstract class RunCommand
 final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[Command], allowDirty: Boolean)
     extends RunCommand
+final case class RunOnGroups(
+    baseUri: Uri,
+    token: gitlab.Authentication,
+    groups: NonEmptyList[GitlabGroup],
+    matcher: List[NameMatcher],
+    branch: String,
+    commands: NonEmptyList[Command],
+    allowDirty: Boolean
+) extends RunCommand
 
 object RunCommand {
   val allowDirty: Opts[Boolean] =
@@ -23,6 +60,7 @@ object RunCommand {
         help = "Run the command even if the git repository is not clean."
       )
       .orFalse
+
   val repos: Opts[NonEmptyList[Repository]] =
     Opts
       .options[Path](
@@ -32,7 +70,33 @@ object RunCommand {
       )
       .map(_.map(Repository(_)))
 
-  val command: Opts[NonEmptyList[Command]] =
+  val group: Opts[String] =
+    Opts
+      .option[String](
+        long = "group",
+        help = "A Gitlab group."
+      )
+      .mapValidated(Commands.Validation.nonEmptyString)
+
+  val branch: Opts[String] =
+    Opts
+      .option[String](
+        long = "branch",
+        help = "The name of the git branch to use in each repository."
+      )
+      .mapValidated(Commands.Validation.nonEmptyString)
+
+  val matchers: Opts[List[NameMatcher]] =
+    Opts
+      .options[String](
+        long = "matcher",
+        help = "A regex to match the project name. Use ! before the regex to exclude it."
+      )
+      .mapValidated(_.traverse(Commands.Validation.nonEmptyString))
+      .map(_.map(NameMatcher.fromString))
+      .orEmpty
+
+  val commands: Opts[NonEmptyList[Command]] =
     Opts
       .options[String](
         long = "command",
@@ -53,12 +117,14 @@ object RunCommand {
 }
 
 object RunCommandHandler {
-  def handle(command: RunCommand)(implicit ce: ConcurrentEffect[IO], cs: ContextShift[IO]): IO[Unit] =
+  def handle(command: RunCommand)(implicit ce: ConcurrentEffect[IO], cs: ContextShift[IO], timer: Timer[IO]): IO[Unit] =
     Blocker[IO]
       .use(blocker => {
-        implicit val prox = ProxFS2[IO](blocker)
-        implicit val fs: FS[IO] = new FileSystem[IO](blocker)
+        val prox = ProxFS2[IO](blocker)
+        val fs: FileSystem[IO] = FileSystem.forSync[IO](blocker)
         implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
+        val gitCli: GitCli[IO] = GitCli(commandExec)
+        val homeService: HomeService[IO] = HomeService[IO](fs)
 
         command match {
           case RunOnDirectories(repos, commands, allowDirty) =>
@@ -86,6 +152,43 @@ object RunCommandHandler {
                   }
               } yield ()
             }.void
+          case RunOnGroups(baseUri, token, groups, matchers, branch, commands, allowDirty) =>
+            val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+              stream.evalTap { case (_, repo) =>
+                val ops = repo.ops[IO]
+                ops.wipeRepository() *> ops.newBranchFromMaster(branch)
+              }
+            }
+
+            val stream = for {
+              home <- fs2.Stream.eval(homeService.getHome())
+              _ <- fs2.Stream.eval(homeService.checkOrMake(home))
+              repositoriesDirectory <- fs2.Stream.eval(fs.mkdirs(home.path.resolve("repositories")))
+
+              _ <- fs2.Stream.eval(IO.delay(scribe.info(s"Cloning into '$repositoriesDirectory'.")))
+
+              client <- fs2.Stream.resource(BlazeClientBuilder[IO](blocker.blockingContext).resource)
+              gh = new GitLabHttpClient[IO](baseUri, token, client)
+
+              _ <- fs2.Stream
+                .emits(groups.toList)
+                .flatMap(g => gh.getGroupRepos(g.value))
+                .filter(repo => matchers.forall(_.matches(repo.name)))
+                .metered(1.second)
+                .evalMap { repo =>
+                  for {
+                    resultPath <- fs.mkdirs(repositoriesDirectory.resolve(repo.fullPath))
+                    _ <- gitCli
+                      .clone(repo.cloneUrl, resultPath)
+                      .void
+                      .recover(GitCli.ExpectedErrors.ignoreExistingRepositories)
+                  } yield (repo, Repository(resultPath))
+                }
+                .through(prepareRepository)
+            } yield ()
+            locally(commands)
+            locally(allowDirty)
+            stream.compile.drain
         }
       })
 }
