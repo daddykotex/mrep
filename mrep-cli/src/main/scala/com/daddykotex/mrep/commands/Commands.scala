@@ -34,8 +34,7 @@ object Commands {
         RunCommand.matchers,
         RunCommand.branch,
         RunCommand.messages,
-        RunCommand.commands,
-        RunCommand.allowDirty
+        RunCommand.commands
       ).tupled
         .map((RunOnGroups.apply _).tupled)
     }

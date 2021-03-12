@@ -49,8 +49,7 @@ final case class RunOnGroups(
     matcher: List[NameMatcher],
     branch: String,
     messages: NonEmptyList[String],
-    commands: NonEmptyList[Command],
-    allowDirty: Boolean
+    commands: NonEmptyList[Command]
 ) extends RunCommand
 
 object RunCommand {
@@ -91,8 +90,9 @@ object RunCommand {
     Opts
       .options[String](
         long = "message",
-        help =
-          "One message line passed to git commit. Similar to git-commit `-m` option. A blank message result in a new line."
+        help = """|One message line passed to git commit.
+                  |Similar to git-commit `-m` option. A blank message result in a new line.
+                  |The first line is used as the merge request subject and the rest as the body.""".stripMargin
       )
 
   val matchers: Opts[List[NameMatcher]] =
@@ -128,98 +128,109 @@ object RunCommand {
 object RunCommandHandler {
   def handle(command: RunCommand)(implicit ce: ConcurrentEffect[IO], cs: ContextShift[IO], timer: Timer[IO]): IO[Unit] =
     Blocker[IO]
-      .use(blocker => {
-        val prox = ProxFS2[IO](blocker)
-        val fs: FileSystem[IO] = FileSystem.forSync[IO](blocker)
-        implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
-        val gitCli: GitCli[IO] = GitCli(commandExec)
-        val homeService: HomeService[IO] = HomeService[IO](fs)
+      .flatMap(blocker => BlazeClientBuilder[IO](blocker.blockingContext).resource.tupleLeft(blocker))
+      .use {
+        case (blocker, client) => {
+          val prox = ProxFS2[IO](blocker)
+          val fs: FileSystem[IO] = FileSystem.forSync[IO](blocker)
+          implicit val commandExec: Exec[IO, Command] = new ProxCommand(prox)
+          val gitCli: GitCli[IO] = GitCli(commandExec)
+          val homeService: HomeService[IO] = HomeService[IO](fs)
 
-        command match {
-          case RunOnDirectories(repos, commands, allowDirty) =>
-            repos.traverse { repo =>
-              for {
-                exists <- fs.exists(repo.directory)
-                _ <-
-                  IO.raiseWhen(!exists)(new RuntimeException(s"Directory ${repo.directory} does not exist."))
+          command match {
+            case RunOnDirectories(repos, commands, allowDirty) =>
+              repos.traverse { repo =>
+                for {
+                  exists <- fs.exists(repo.directory)
+                  _ <-
+                    IO.raiseWhen(!exists)(new RuntimeException(s"Directory ${repo.directory} does not exist."))
 
-                gitRepoOps = repo.ops[IO]
+                  gitRepoOps = repo.ops[IO]
 
-                isClean <- gitRepoOps.isClean()
-                _ <-
-                  if (isClean || allowDirty) {
-                    IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
-                      commands.traverse { raw =>
-                        commandExec
-                          .runVoid(raw, workDir = Some(repo.directory))
-                          .recover { case Exec.Error(ex) =>
-                            scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
-                          }
-                      }
-                  } else {
-                    IO.delay(scribe.info(s"Ignoring ${repo.directory} because it's not clean."))
-                  }
-              } yield ()
-            }.void
-          case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands, allowDirty) =>
-            val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
-              stream.evalTap { case (_, repo) =>
-                val ops = repo.ops[IO]
-                ops.wipeRepository() *> ops.newBranchFromMaster(branch)
-              }
-            }
-            val runCommands: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
-              stream.evalTap { case (_, repo) =>
-                commands.traverse { raw =>
-                  commandExec
-                    .runVoid(raw, workDir = Some(repo.directory))
-                    .recover { case Exec.Error(ex) =>
-                      scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
+                  isClean <- gitRepoOps.isClean()
+                  _ <-
+                    if (isClean || allowDirty) {
+                      IO.delay(scribe.debug(s"Running commands on ${repo.directory}")) *>
+                        commands.traverse { raw =>
+                          commandExec
+                            .runVoid(raw, workDir = Some(repo.directory))
+                            .recover { case Exec.Error(ex) =>
+                              scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
+                            }
+                        }
+                    } else {
+                      IO.delay(scribe.info(s"Ignoring ${repo.directory} because it's not clean."))
                     }
+                } yield ()
+              }.void
+            case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands) =>
+              val gh = new GitLabHttpClient[IO](baseUri, token, client)
+
+              val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+                stream.evalTap { case (_, repo) =>
+                  val ops = repo.ops[IO]
+                  ops.wipeRepository() *> ops.newBranchFromMaster(branch)
                 }
               }
-            }
-
-            val publishChanges: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
-              stream.evalTap { case (_, repo) =>
-                val ops = repo.ops[IO]
-                ops.updateStage() *> ops.commit(messages) *> ops.forcePush(branch)
-              }
-            }
-
-            val stream = for {
-              home <- fs2.Stream.eval(homeService.getHome())
-              _ <- fs2.Stream.eval(homeService.checkOrMake(home))
-              repositoriesDirectory <- fs2.Stream.eval(fs.mkdirs(home.path.resolve("repositories")))
-
-              _ <- fs2.Stream.eval(IO.delay(scribe.info(s"Cloning into '$repositoriesDirectory'.")))
-
-              client <- fs2.Stream.resource(BlazeClientBuilder[IO](blocker.blockingContext).resource)
-              gh = new GitLabHttpClient[IO](baseUri, token, client)
-
-              _ <- fs2.Stream
-                .emits(groups.toList)
-                .flatMap(g => gh.getGroupRepos(g.value))
-                .filter(repo => matchers.forall(_.matches(repo.name)))
-                .metered(1.second)
-                .evalMap { repo =>
-                  for {
-                    resultPath <- fs.mkdirs(repositoriesDirectory.resolve(repo.fullPath))
-                    _ <- gitCli
-                      .clone(repo.cloneUrl, resultPath)
-                      .void
-                      .recover(GitCli.ExpectedErrors.ignoreExistingRepositories)
-                  } yield (repo, Repository(resultPath))
+              val runCommands: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+                stream.evalTap { case (_, repo) =>
+                  commands.traverse { raw =>
+                    commandExec
+                      .runVoid(raw, workDir = Some(repo.directory))
+                      .recover { case Exec.Error(ex) =>
+                        scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
+                      }
+                  }
                 }
-                .through(prepareRepository)
-                .through(runCommands)
-                .through(publishChanges)
-            } yield ()
-            locally(commands)
-            locally(allowDirty)
-            stream.compile.drain
+              }
+
+              val publishChanges: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+                stream.evalTap { case (_, repo) =>
+                  val ops = repo.ops[IO]
+                  ops.updateStage() *> ops.commit(messages) *> ops.forcePush(branch)
+                }
+              }
+
+              val createMr: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+                stream.evalTap { case (gitLabRepo, _) =>
+                  gh.createMergeRequest(gitLabRepo, branch, messages)
+                }
+              }
+
+              val stream = for {
+                home <- fs2.Stream.eval(homeService.getHome())
+                _ <- fs2.Stream.eval(homeService.checkOrMake(home))
+                repositoriesDirectory <- fs2.Stream.eval(fs.mkdirs(home.path.resolve("repositories")))
+
+                _ <- fs2.Stream.eval(IO.delay(scribe.info(s"Cloning into '$repositoriesDirectory'.")))
+
+                client <- fs2.Stream.resource(BlazeClientBuilder[IO](blocker.blockingContext).resource)
+                gh = new GitLabHttpClient[IO](baseUri, token, client)
+
+                _ <- fs2.Stream
+                  .emits(groups.toList)
+                  .flatMap(g => gh.getGroupRepos(g.value))
+                  .filter(repo => matchers.forall(_.matches(repo.name)))
+                  .metered(1.second)
+                  .evalMap { repo =>
+                    for {
+                      resultPath <- fs.mkdirs(repositoriesDirectory.resolve(repo.fullPath))
+                      _ <- gitCli
+                        .clone(repo.cloneUrl, resultPath)
+                        .void
+                        .recover(GitCli.ExpectedErrors.ignoreExistingRepositories)
+                    } yield (repo, Repository(resultPath))
+                  }
+                  .through(prepareRepository)
+                  .through(runCommands)
+                  .through(publishChanges)
+                  .through(createMr)
+              } yield ()
+
+              stream.compile.drain
+          }
         }
-      })
+      }
 }
 
 private object CommandParserHelper {
