@@ -5,6 +5,7 @@ import cats.implicits._
 import java.nio.file.Path
 import com.daddykotex.mrep.proc._
 import java.nio.file.Paths
+import cats.data.NonEmptyList
 
 sealed trait CheckoutBranch {
   import CheckoutBranch._
@@ -44,6 +45,9 @@ trait RepoGitCli[F[_]] {
   def clean(force: Boolean, recursive: Boolean): F[Unit]
   def checkout(newBranch: CheckoutBranch, target: String, startPoint: Option[FullBranch]): F[Unit]
   def pull(): F[Unit]
+  def push(force: Boolean, target: FullBranch): F[Unit]
+  def add(update: Boolean, files: Paths*): F[Unit]
+  def commit(messages: NonEmptyList[String]): F[Unit]
 }
 
 object RepoGitCli {
@@ -69,7 +73,6 @@ object RepoGitCli {
       val forceFlag = if (force) List("--force") else List.empty
       val recursiveFlag = if (recursive) List("--d") else List.empty
       val command = Command("git", List("clean") ++ forceFlag ++ recursiveFlag)
-      println(s"running $command in ${repo.directory}")
       exec.runVoid(command, Some(repo.directory))
     }
 
@@ -82,6 +85,25 @@ object RepoGitCli {
 
     def pull(): F[Unit] = {
       val command = Command("git", List("pull"))
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def add(update: Boolean, files: Paths*): F[Unit] = {
+      val updateFlag = if (update) List("--update") else List.empty
+      val filesArg = files.map(_.toString()).toList
+      val command = Command("git", List("add") ++ updateFlag ++ filesArg)
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def commit(messages: NonEmptyList[String]): F[Unit] = {
+      val messageOpts = messages.flatMap(message => NonEmptyList.of("--message", message)).toList
+      val command = Command("git", List("commit") ++ messageOpts)
+      exec.runVoid(command, Some(repo.directory))
+    }
+
+    def push(force: Boolean, target: FullBranch): F[Unit] = {
+      val forceFlag = if (force) List("--force") else List.empty
+      val command = Command("git", List("push") ++ forceFlag ++ List(target.remote, target.branch))
       exec.runVoid(command, Some(repo.directory))
     }
   }

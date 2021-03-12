@@ -33,6 +33,7 @@ object Commands {
         GitLab.repeatedGroup,
         RunCommand.matchers,
         RunCommand.branch,
+        RunCommand.messages,
         RunCommand.commands,
         RunCommand.allowDirty
       ).tupled

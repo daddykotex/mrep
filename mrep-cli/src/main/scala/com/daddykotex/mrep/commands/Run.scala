@@ -48,6 +48,7 @@ final case class RunOnGroups(
     groups: NonEmptyList[GitlabGroup],
     matcher: List[NameMatcher],
     branch: String,
+    messages: NonEmptyList[String],
     commands: NonEmptyList[Command],
     allowDirty: Boolean
 ) extends RunCommand
@@ -85,6 +86,14 @@ object RunCommand {
         help = "The name of the git branch to use in each repository."
       )
       .mapValidated(Commands.Validation.nonEmptyString)
+
+  val messages: Opts[NonEmptyList[String]] =
+    Opts
+      .options[String](
+        long = "message",
+        help =
+          "One message line passed to git commit. Similar to git-commit `-m` option. A blank message result in a new line."
+      )
 
   val matchers: Opts[List[NameMatcher]] =
     Opts
@@ -152,11 +161,29 @@ object RunCommandHandler {
                   }
               } yield ()
             }.void
-          case RunOnGroups(baseUri, token, groups, matchers, branch, commands, allowDirty) =>
+          case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands, allowDirty) =>
             val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
               stream.evalTap { case (_, repo) =>
                 val ops = repo.ops[IO]
                 ops.wipeRepository() *> ops.newBranchFromMaster(branch)
+              }
+            }
+            val runCommands: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+              stream.evalTap { case (_, repo) =>
+                commands.traverse { raw =>
+                  commandExec
+                    .runVoid(raw, workDir = Some(repo.directory))
+                    .recover { case Exec.Error(ex) =>
+                      scribe.error(s"Error running '${raw.value}' in ${repo.directory}", ex)
+                    }
+                }
+              }
+            }
+
+            val publishChanges: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+              stream.evalTap { case (_, repo) =>
+                val ops = repo.ops[IO]
+                ops.updateStage() *> ops.commit(messages) *> ops.forcePush(branch)
               }
             }
 
@@ -185,6 +212,8 @@ object RunCommandHandler {
                   } yield (repo, Repository(resultPath))
                 }
                 .through(prepareRepository)
+                .through(runCommands)
+                .through(publishChanges)
             } yield ()
             locally(commands)
             locally(allowDirty)
