@@ -1,20 +1,20 @@
 package com.daddykotex.mrep.commands
 
+import cats.data.NonEmptyList
 import com.daddykotex.mrep.commands.Commands.Validation
-import com.daddykotex.mrep.repos.gitlab
+import com.daddykotex.mrep.repos.gitlab.{Authentication => GitLabAuth, _}
 import com.monovore.decline.Opts
 import java.nio.file.Path
-import cats.data.NonEmptyList
 
 object Authentication {
-  val gitlabToken: Opts[gitlab.Authentication] =
+  val gitlabToken: Opts[GitLabAuth] =
     Opts
       .option[String](
         long = "token",
         help = "Access token to from the GitLab account with API permissions."
       )
       .mapValidated(Validation.nonEmptyString)
-      .map(gitlab.Authentication)
+      .map(GitLabAuth.apply)
 
 }
 

@@ -2,49 +2,28 @@ package com.daddykotex.mrep.commands
 
 import cats.data.NonEmptyList
 import cats.data.Validated
-import cats.implicits._
 import cats.effect._
+import cats.implicits._
 import com.daddykotex.mrep.file._
-import com.daddykotex.mrep.repos.gitlab
+import com.daddykotex.mrep.git.GitCli
 import com.daddykotex.mrep.git.Repository
 import com.daddykotex.mrep.proc._
+import com.daddykotex.mrep.repos.NameMatcher
+import com.daddykotex.mrep.repos.gitlab._
+import com.daddykotex.mrep.services.HomeService
 import com.monovore.decline.Opts
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
-import org.http4s.client.blaze.BlazeClientBuilder
-import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
 import org.http4s.Uri
-import com.daddykotex.mrep.services.HomeService
-import com.daddykotex.mrep.git.GitCli
+import org.http4s.client.blaze.BlazeClientBuilder
 import scala.concurrent.duration._
-import com.daddykotex.mrep.repos.gitlab.GitlabRepo
-
-final case class NameMatcher(regex: String, reverse: Boolean) {
-  def matches(value: String): Boolean = {
-    val switch: Boolean => Boolean = if (reverse) {
-      !(_)
-    } else {
-      identity
-    }
-    switch(value.matches(regex))
-  }
-}
-object NameMatcher {
-  def fromString(regex: String): NameMatcher = {
-    if (regex.startsWith("!")) {
-      NameMatcher(regex.drop(1), reverse = true)
-    } else {
-      NameMatcher(regex, reverse = false)
-    }
-  }
-}
 
 sealed abstract class RunCommand
 final case class RunOnDirectories(repos: NonEmptyList[Repository], commands: NonEmptyList[Command], allowDirty: Boolean)
     extends RunCommand
 final case class RunOnGroups(
     baseUri: Uri,
-    token: gitlab.Authentication,
+    token: Authentication,
     groups: NonEmptyList[GitlabGroup],
     matcher: List[NameMatcher],
     branch: String,

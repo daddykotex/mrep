@@ -1,10 +1,10 @@
 package com.daddykotex.mrep.git
 
 import cats.Monad
+import cats.data.NonEmptyList
 import cats.implicits._
 import com.daddykotex.mrep.proc._
 import java.nio.file.Path
-import cats.data.NonEmptyList
 
 final case class Repository(directory: Path) {
   implicit def ops[F[_]: Monad](implicit exec: Exec[F, Command]): RepositoryOps[F] = new GitRepositoryOps(

@@ -5,6 +5,7 @@ import com.daddykotex.mrep.build.BuildInfo
 import com.daddykotex.mrep.commands.CloneGitLabHandler
 import com.daddykotex.mrep.commands.Commands
 import com.daddykotex.mrep.commands.ExportGitLabHandler
+import com.daddykotex.mrep.commands.ListTagHandler
 import com.daddykotex.mrep.commands.RunCommandHandler
 import com.monovore.decline._
 import com.monovore.decline.effect._
@@ -29,7 +30,11 @@ object Main
       RunCommandHandler.handle(cmd)
     }
 
-    (exportGitlab orElse run orElse cloneGitlab)
+    val fetchLatestTag = Commands.fetchLatestTag.map { cmd =>
+      ListTagHandler.handle(cmd)
+    }
+
+    (exportGitlab orElse run orElse cloneGitlab orElse fetchLatestTag)
       .map { result =>
         result
           .as(ExitCode.Success)

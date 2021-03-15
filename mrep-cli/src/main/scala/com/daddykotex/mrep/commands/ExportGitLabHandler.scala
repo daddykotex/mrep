@@ -1,12 +1,11 @@
 package com.daddykotex.mrep.commands
 
 import cats.effect._
-import com.daddykotex.mrep.repos.gitlab
-import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
+import com.daddykotex.mrep.repos.gitlab._
 import org.http4s.Uri
 import org.http4s.client.blaze.BlazeClientBuilder
 
-final case class ExportGitLab(baseUri: Uri, token: gitlab.Authentication)
+final case class ExportGitLab(baseUri: Uri, token: Authentication)
 object ExportGitLabHandler {
   def handle(command: ExportGitLab)(implicit ce: ConcurrentEffect[IO]): IO[Unit] =
     Blocker[IO]

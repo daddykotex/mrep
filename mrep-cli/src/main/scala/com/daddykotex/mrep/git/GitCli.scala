@@ -1,11 +1,11 @@
 package com.daddykotex.mrep.git
 
 import cats.Applicative
-import cats.implicits._
-import java.nio.file.Path
-import com.daddykotex.mrep.proc._
-import java.nio.file.Paths
 import cats.data.NonEmptyList
+import cats.implicits._
+import com.daddykotex.mrep.proc._
+import java.nio.file.Path
+import java.nio.file.Paths
 
 sealed trait CheckoutBranch {
   import CheckoutBranch._

@@ -5,18 +5,16 @@ import cats.effect._
 import cats.implicits._
 import com.daddykotex.mrep.file._
 import com.daddykotex.mrep.git.GitCli
-import com.daddykotex.mrep.repos.gitlab
-import com.daddykotex.mrep.repos.gitlab.GitLabHttpClient
 import com.daddykotex.mrep.proc._
+import com.daddykotex.mrep.repos.gitlab._
 import io.github.vigoo.prox.ProxFS2
 import java.nio.file.Path
 import org.http4s.Uri
 import org.http4s.client.blaze.BlazeClientBuilder
 
-final case class GitlabGroup(value: String)
 final case class CloneGitLabGroup(
     baseUri: Uri,
-    token: gitlab.Authentication,
+    token: Authentication,
     groups: NonEmptyList[GitlabGroup],
     targetDirectory: Path
 )

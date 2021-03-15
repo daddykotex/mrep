@@ -46,6 +46,16 @@ object Commands {
 
   val run = runDir orElse runGroup
 
+  val fetchLatestTag: Opts[FetchLatestTag] =
+    Opts.subcommand(name = "fetch-latest-tag", help = "Get the latest tag for multiple git repositories.") {
+      (
+        uri,
+        Authentication.gitlabToken,
+        GitLab.repeatedGroup,
+        RunCommand.matchers
+      ).tupled.map((FetchLatestTag.apply _).tupled)
+    }
+
   object Validation {
     def nonEmptyString(raw: String): ValidatedNel[String, String] = {
       if (raw.trim().isEmpty()) {

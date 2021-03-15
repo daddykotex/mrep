@@ -1,12 +1,12 @@
 package com.daddykotex.mrep.services
 
+import cats.MonadError
+import cats.implicits._
 import com.daddykotex.mrep.MRepException
 import com.daddykotex.mrep.file.FileSystem
 import java.nio.file.Path
 import java.nio.file.Paths
-import cats.implicits._
 import scala.util.Try
-import cats.MonadError
 
 final case class Home(path: Path, shouldExist: Boolean)
 
