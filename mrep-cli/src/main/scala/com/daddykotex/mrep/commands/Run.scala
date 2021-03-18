@@ -28,7 +28,8 @@ final case class RunOnGroups(
     matcher: List[NameMatcher],
     branch: String,
     messages: NonEmptyList[String],
-    commands: NonEmptyList[Command]
+    commands: NonEmptyList[Command],
+    readOnly: Boolean
 ) extends RunCommand
 
 object RunCommand {
@@ -37,6 +38,14 @@ object RunCommand {
       .flag(
         long = "allow-dirty",
         help = "Run the command even if the git repository is not clean."
+      )
+      .orFalse
+
+  val readOnly: Opts[Boolean] =
+    Opts
+      .flag(
+        long = "read-only",
+        help = "Run the command but do not care for any changes. (No commits nor merge request will be created)"
       )
       .orFalse
 
@@ -142,7 +151,7 @@ object RunCommandHandler {
                     }
                 } yield ()
               }.void
-            case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands) =>
+            case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands, readOnly) =>
               val gh = new GitLabHttpClient[IO](baseUri, token, client)
 
               val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
@@ -176,6 +185,12 @@ object RunCommandHandler {
                 }
               }
 
+              val writePipe: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
+                stream
+                  .through(publishChanges)
+                  .through(createMr)
+              }
+
               val stream = for {
                 home <- fs2.Stream.eval(homeService.getHome())
                 _ <- fs2.Stream.eval(homeService.checkOrMake(home))
@@ -202,8 +217,7 @@ object RunCommandHandler {
                   }
                   .through(prepareRepository)
                   .through(runCommands)
-                  .through(publishChanges)
-                  .through(createMr)
+                  .through(s => if (readOnly) s else writePipe(s))
               } yield ()
 
               stream.compile.drain

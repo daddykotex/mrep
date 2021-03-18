@@ -34,7 +34,8 @@ object Commands {
         RunCommand.matchers,
         RunCommand.branch,
         RunCommand.messages,
-        RunCommand.commands
+        RunCommand.commands,
+        RunCommand.readOnly
       ).tupled
         .map((RunOnGroups.apply _).tupled)
     }
