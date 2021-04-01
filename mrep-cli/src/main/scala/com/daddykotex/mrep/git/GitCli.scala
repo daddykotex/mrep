@@ -48,6 +48,7 @@ trait RepoGitCli[F[_]] {
   def push(force: Boolean, target: FullBranch): F[Unit]
   def add(update: Boolean, files: Paths*): F[Unit]
   def commit(messages: NonEmptyList[String]): F[Unit]
+  def diff(thisRef: String, thatRef: String, quiet: Boolean): F[Vector[String]]
 }
 
 object RepoGitCli {
@@ -105,6 +106,12 @@ object RepoGitCli {
       val forceFlag = if (force) List("--force") else List.empty
       val command = Command("git", List("push") ++ forceFlag ++ List(target.remote, target.branch))
       exec.runVoid(command, Some(repo.directory))
+    }
+
+    def diff(thisRef: String, thatRef: String, quiet: Boolean): F[Vector[String]] = {
+      val quietFlag = if (quiet) List("--quiet") else List.empty
+      val command = Command("git", List("diff") ++ quietFlag ++ List(s"$thisRef...$thatRef"))
+      exec.runLines(command, Some(repo.directory))
     }
   }
 }

@@ -19,6 +19,7 @@ trait RepositoryOps[F[_]] {
   def updateStage(): F[Unit]
   def commit(messages: NonEmptyList[String]): F[Unit]
   def forcePush(branch: String): F[Unit]
+  def hasDiffFromMaster(target: String): F[Boolean]
 }
 
 class GitRepositoryOps[F[_]: Monad](git: RepoGitCli[F]) extends RepositoryOps[F] {
@@ -44,6 +45,12 @@ class GitRepositoryOps[F[_]: Monad](git: RepoGitCli[F]) extends RepositoryOps[F]
       _ <- git.reset(hard = true, FullBranch("origin", "master"))
       _ <- git.clean(force = true, recursive = true)
     } yield ()
+  }
+
+  def hasDiffFromMaster(target: String): F[Boolean] = {
+    git
+      .diff(target, "master", quiet = false)
+      .map(lines => !lines.exists(_.trim.nonEmpty))
   }
 
   def newBranchFromMaster(target: String): F[Unit] = {

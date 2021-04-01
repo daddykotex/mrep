@@ -186,9 +186,16 @@ object RunCommandHandler {
               }
 
               val writePipe: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
-                stream
-                  .through(publishChanges)
-                  .through(createMr)
+                for {
+                  el @ (_, repo) <- stream
+                  hasDiff <- fs2.Stream.eval(repo.ops[IO].hasDiffFromMaster(branch))
+                  res <-
+                    if (hasDiff) {
+                      fs2.Stream.emit(el).through(publishChanges).through(createMr)
+                    } else {
+                      fs2.Stream.emit(el)
+                    }
+                } yield res
               }
 
               val stream = for {
