@@ -48,9 +48,9 @@ class GitRepositoryOps[F[_]: Monad](git: RepoGitCli[F]) extends RepositoryOps[F]
   }
 
   def hasDiffFromMaster(target: String): F[Boolean] = {
-    git
-      .diff(target, "master", quiet = false)
-      .map(lines => !lines.exists(_.trim.nonEmpty))
+    val diff = git.diff(target, "master", quiet = false).map(lines => !lines.forall(_.trim.nonEmpty))
+    val status = git.status(UntrackedFiles.All).map(_.nonEmpty)
+    status.flatMap(b1 => diff.tupleLeft(b1)).map { case (untracked, diff) => diff || untracked }
   }
 
   def newBranchFromMaster(target: String): F[Unit] = {
