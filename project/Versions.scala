@@ -8,7 +8,7 @@ object Versions {
   val prox = "0.6.0"
 
   val munit = "0.7.19"
-  val catsMunit = "0.11.0"
+  val catsMunit = "1.0.0"
 
   val scribe = "3.3.1"
 }
