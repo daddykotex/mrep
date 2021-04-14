@@ -213,6 +213,7 @@ object RunCommandHandler {
                   .flatMap(g => gh.getGroupRepos(g.value))
                   .filter(repo => matchers.forall(_.matches(repo.name)))
                   .metered(1.second)
+                  .evalTap(repo => IO.delay(scribe.info(s"Working in '${repo.fullPath}'.")))
                   .evalMap { repo =>
                     for {
                       resultPath <- fs.mkdirs(repositoriesDirectory.resolve(repo.fullPath))
