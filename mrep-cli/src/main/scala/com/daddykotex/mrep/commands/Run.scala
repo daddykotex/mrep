@@ -29,7 +29,8 @@ final case class RunOnGroups(
     branch: String,
     messages: NonEmptyList[String],
     commands: NonEmptyList[Command],
-    readOnly: Boolean
+    readOnly: Boolean,
+    failIfMRExists: Boolean
 ) extends RunCommand
 
 object RunCommand {
@@ -37,7 +38,7 @@ object RunCommand {
     Opts
       .flag(
         long = "allow-dirty",
-        help = "Run the command even if the git repository is not clean."
+        help = "Run the command even if the git repository is not clean. (Default: false)"
       )
       .orFalse
 
@@ -45,7 +46,16 @@ object RunCommand {
     Opts
       .flag(
         long = "read-only",
-        help = "Run the command but do not care for any changes. (No commits nor merge request will be created)"
+        help =
+          "Run the command but do not care for any changes. (No commits nor merge request will be created) (Default: false)"
+      )
+      .orFalse
+
+  val failIfMRExists: Opts[Boolean] =
+    Opts
+      .flag(
+        long = "fail-mr-exists",
+        help = "Fail if a merge requests already exists for the given branch. (Default: false)"
       )
       .orFalse
 
@@ -151,7 +161,7 @@ object RunCommandHandler {
                     }
                 } yield ()
               }.void
-            case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands, readOnly) =>
+            case RunOnGroups(baseUri, token, groups, matchers, branch, messages, commands, readOnly, failIfMRExists) =>
               val gh = new GitLabHttpClient[IO](baseUri, token, client)
 
               val prepareRepository: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
@@ -181,7 +191,7 @@ object RunCommandHandler {
 
               val createMr: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
                 stream.evalTap { case (gitLabRepo, _) =>
-                  gh.createMergeRequest(gitLabRepo, branch, messages)
+                  gh.createMergeRequest(gitLabRepo, branch, messages, failIfExists = failIfMRExists)
                 }
               }
 

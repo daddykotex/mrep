@@ -17,7 +17,7 @@ private[gitlab] object GitlabJson {
   final case class Project(id: Int, name: String, path_with_namespace: String, ssh_url_to_repo: String)
   implicit val projectDecoder: Decoder[Project] = deriveDecoder[Project]
 
-  final case class ErrorBody(error: String)
+  final case class ErrorBody(message: NonEmptyList[String])
   implicit val errorBodyDecoder: Decoder[ErrorBody] = deriveDecoder[ErrorBody]
 
   final case class Tag(name: String)
@@ -25,6 +25,10 @@ private[gitlab] object GitlabJson {
 
   final case class NewMergeRequest(title: String, description: String, source_branch: String, target_branch: String)
   implicit val newMergeRequestEncoder: Encoder[NewMergeRequest] = deriveEncoder[NewMergeRequest]
+}
+
+object GitLabHttpClient {
+  class MergeRequestExists(msg: String) extends RuntimeException(msg)
 }
 
 final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authentication, httpClient: Client[G])
@@ -58,11 +62,18 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
       .filter(_.value.trim().nonEmpty)
       .map(h => getRequestUri(uri, Some(h.value)))
   }
-  private def raise[T](message: String) = new RuntimeException(message).raiseError[G, T]
+  private def raise[T](message: String) = {
+    val ex = message match {
+      case msg if msg.startsWith("Another open merge request already exists for this source branch") =>
+        new GitLabHttpClient.MergeRequestExists(msg)
+      case _ => new RuntimeException(message)
+    }
+    ex.raiseError[G, T]
+  }
   private def raiseFromBody[T](resp: Response[G]): G[T] = {
     resp
       .as[GitlabJson.ErrorBody]
-      .flatMap(err => raise[T](err.error))
+      .flatMap(err => raise[T](err.message.mkString_("\n")))
   }
 
   private def getRecursively[A](uri: Uri, limit: Option[Long])(implicit ED: EntityDecoder[G, Seq[A]]) = {
@@ -112,10 +123,24 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     getRecursively[GitlabJson.Tag](uri, Some(1)).map { raw => GitLabTag(raw.name) }.last
   }
 
-  def createMergeRequest(repo: GitlabRepo, branchName: String, messages: NonEmptyList[String]) = {
+  def createMergeRequest(
+      repo: GitlabRepo,
+      branchName: String,
+      messages: NonEmptyList[String],
+      failIfExists: Boolean
+  ) = {
     val NonEmptyList(subject, bodyLines) = messages
     val description = bodyLines.mkString("\n")
     val body = GitlabJson.NewMergeRequest(subject, description, branchName, "master")
+    val errorHandling: PartialFunction[Throwable, Unit] = recoverIf(!failIfExists) {
+      case _: GitLabHttpClient.MergeRequestExists => ()
+    }
     post(body, baseUri / "projects" / repo.fullPath / "merge_requests")
+      .recover(errorHandling)
+  }
+
+  private def recoverIf[T](recover: Boolean)(pf: PartialFunction[Throwable, T]) = {
+    if (recover) { pf }
+    else { PartialFunction.fromFunction[Throwable, T](ex => throw ex) }
   }
 }
