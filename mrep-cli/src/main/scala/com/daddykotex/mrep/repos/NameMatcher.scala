@@ -11,6 +11,10 @@ final case class NameMatcher(regex: String, reverse: Boolean) {
   }
 }
 object NameMatcher {
+  def predicator(matchers: List[NameMatcher]): String => Boolean = { value =>
+    matchers.forall { _.matches(value) }
+  }
+
   def fromString(regex: String): NameMatcher = {
     if (regex.startsWith("!")) {
       NameMatcher(regex.drop(1), reverse = true)

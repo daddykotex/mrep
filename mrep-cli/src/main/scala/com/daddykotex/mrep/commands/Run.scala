@@ -221,7 +221,7 @@ object RunCommandHandler {
                 _ <- fs2.Stream
                   .emits(groups.toList)
                   .flatMap(g => gh.getGroupRepos(g.value))
-                  .filter(repo => matchers.forall(_.matches(repo.name)))
+                  .filter(p => NameMatcher.predicator(matchers)(p.name))
                   .metered(1.second)
                   .evalTap(repo => IO.delay(scribe.info(s"Working in '${repo.fullPath}'.")))
                   .evalMap { repo =>
