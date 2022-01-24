@@ -14,6 +14,31 @@ import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.implicits._
 
 private[gitlab] object GitlabJson {
+  sealed trait MergeRequestState extends Product with Serializable {
+    def value: String = this match {
+      case MergeRequestState.opened => "opened"
+      case MergeRequestState.closed => "closed"
+      case MergeRequestState.locked => "locked"
+      case MergeRequestState.merged => "merged"
+    }
+  }
+
+  object MergeRequestState {
+    def parse(value: String): Either[String, MergeRequestState] = value match {
+      case "opened" => opened.asRight
+      case "closed" => closed.asRight
+      case "locked" => locked.asRight
+      case "merged" => merged.asRight
+      case x        => s"Unknown merge request state: $x".asLeft
+    }
+
+    case object opened extends MergeRequestState
+    case object closed extends MergeRequestState
+    case object locked extends MergeRequestState
+    case object merged extends MergeRequestState
+  }
+  implicit val mrStateDecoder: Decoder[MergeRequestState] = Decoder[String].emap(MergeRequestState.parse)
+
   final case class Project(id: Int, name: String, path_with_namespace: String, ssh_url_to_repo: String)
   implicit val projectDecoder: Decoder[Project] = deriveDecoder[Project]
 
@@ -25,6 +50,17 @@ private[gitlab] object GitlabJson {
 
   final case class NewMergeRequest(title: String, description: String, source_branch: String, target_branch: String)
   implicit val newMergeRequestEncoder: Encoder[NewMergeRequest] = deriveEncoder[NewMergeRequest]
+
+  final case class MergeRequest(
+      id: Int,
+      iid: Int,
+      title: String,
+      description: String,
+      source_branch: String,
+      target_branch: String,
+      state: String
+  )
+  implicit val mergeRequestEncoder: Decoder[MergeRequest] = deriveDecoder[MergeRequest]
 }
 
 object GitLabHttpClient {
@@ -100,6 +136,15 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     }
   }
 
+  private def put[A: EntityEncoder[G, *]](body: A, uri: Uri): G[Unit] = {
+    val request = PUT(body, uri, Header.Raw("Private-Token".ci, auth.token))
+    request.run {
+      handleError { _ =>
+        ().pure[G]
+      }
+    }
+  }
+
   private def getProjects(projectsUri: Uri): fs2.Stream[G, GitlabJson.Project] = {
     // https://docs.gitlab.com/ee/api/projects.html#list-user-projects
     val uri = projectsUri +? ("archived", false) +? ("min_access_level", 30)
@@ -123,6 +168,25 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     getRecursively[GitlabJson.Tag](uri, Some(1)).map { raw => GitLabTag(raw.name) }.last
   }
 
+  def getMergeRequests(
+      repo: GitlabRepo,
+      state: Option[String],
+      targetBranch: Option[String]
+  ): fs2.Stream[G, GitLabMergeRequest] = {
+    val transformUri: Seq[Uri => Uri] =
+      Seq(
+        "state" -> state,
+        "target_branch" -> targetBranch
+      ).collect { case (key, Some(value)) =>
+        _.+?(key, value)
+      }
+    val uri = baseUri / "projects" / repo.fullPath / "merge_requests"
+    val finalUri: Uri = transformUri.foldLeft(uri) { case (acc, t) => t(acc) }
+    getRecursively[GitlabJson.MergeRequest](finalUri, None).map { raw =>
+      GitLabMergeRequest(raw.id, raw.iid, raw.title, raw.description, raw.source_branch, raw.target_branch, raw.state)
+    }
+  }
+
   def createMergeRequest(
       repo: GitlabRepo,
       branchName: String,
@@ -137,6 +201,45 @@ final class GitLabHttpClient[G[_]: Applicative: Sync](baseUri: Uri, auth: Authen
     }
     post(body, baseUri / "projects" / repo.fullPath / "merge_requests")
       .recover(errorHandling)
+  }
+
+  def updateMergeRequest(
+      iid: Int,
+      repo: GitlabRepo,
+      branchName: String,
+      messages: NonEmptyList[String]
+  ) = {
+    val NonEmptyList(subject, bodyLines) = messages
+    val description = bodyLines.mkString("\n")
+    val body = GitlabJson.NewMergeRequest(subject, description, branchName, "master")
+    put(body, baseUri / "projects" / repo.fullPath / "merge_requests" / iid.toString)
+  }
+
+  def createOrUpdateMergeRequest(
+      repo: GitlabRepo,
+      branchName: String,
+      messages: NonEmptyList[String],
+      failIfExists: Boolean
+  ): G[Unit] = {
+    val foundMr =
+      getMergeRequests(repo, state = Some(GitlabJson.MergeRequestState.opened.value), targetBranch = Some(branchName))
+        .debug()
+        .take(1)
+        .compile
+        .last
+    foundMr.flatMap {
+      case Some(v) =>
+        Sync[G].delay(scribe.info(s"Updating the MR at '${v.iid}'.")) *>
+          updateMergeRequest(v.iid, repo, branchName, messages)
+      case None =>
+        Sync[G].delay(scribe.info(s"Creating a new MR.")) *>
+          createMergeRequest(
+            repo,
+            branchName,
+            messages,
+            failIfExists
+          )
+    }
   }
 
   private def recoverIf[T](recover: Boolean)(pf: PartialFunction[Throwable, T]) = {

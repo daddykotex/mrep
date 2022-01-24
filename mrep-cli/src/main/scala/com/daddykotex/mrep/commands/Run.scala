@@ -191,7 +191,7 @@ object RunCommandHandler {
 
               val createMr: fs2.Pipe[IO, (GitlabRepo, Repository), (GitlabRepo, Repository)] = { stream =>
                 stream.evalTap { case (gitLabRepo, _) =>
-                  gh.createMergeRequest(gitLabRepo, branch, messages, failIfExists = failIfMRExists)
+                  gh.createOrUpdateMergeRequest(gitLabRepo, branch, messages, failIfExists = failIfMRExists)
                 }
               }
 
